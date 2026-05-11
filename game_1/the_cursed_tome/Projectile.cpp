@@ -1,0 +1,167 @@
+#include "Defines.h"
+#include "Projectile.h"
+#include "Map.h"
+#include "FixedMath.h"
+#include "Particle.h"
+#include "Enemy.h"
+#include "Generated/SpriteTypes.h"
+#include "Platform.h"
+#include "Sounds.h"
+
+Projectile ProjectileManager::projectiles[ProjectileManager::MAX_PROJECTILES];
+
+Projectile* ProjectileManager::FireProjectile(Entity* owner, int16_t x, int16_t y, uint8_t angle)
+{
+	for (Projectile& p : projectiles)
+	{
+		if(p.life == 0)
+		{
+			if (owner == &TombGame::player)
+				p.ownerId = Projectile::playerOwnerId;
+			else
+			{
+				for (uint8_t n = 0; n < EnemyManager::maxEnemies; n++)
+				{
+					if (&EnemyManager::enemies[n] == owner)
+					{
+						p.ownerId = n;
+						break;
+					}
+				}
+			}
+
+			p.life = 255;
+			p.x = x;
+			p.y = y;
+			p.angle = angle;
+			return &p;
+		}
+	}
+
+	return nullptr;
+}
+
+Entity* Projectile::GetOwner() const
+{
+	if (ownerId == playerOwnerId)
+		return &TombGame::player;
+	return &EnemyManager::enemies[ownerId];
+}
+
+void ProjectileManager::Update()
+{
+	for (Projectile& p : projectiles)
+	{
+		if(p.life > 0)
+		{
+			p.life--;
+
+			int16_t deltaX = FixedCos(p.angle) / 4;
+			int16_t deltaY = FixedSin(p.angle) / 4;
+
+			p.x += deltaX;
+			p.y += deltaY;
+
+			bool hitAnything = false;
+
+			Entity* owner = p.GetOwner();
+
+			if (Map::IsBlockedAtWorldPosition(p.x, p.y))
+			{
+				uint8_t cellX = p.x / CELL_SIZE;
+				uint8_t cellY = p.y / CELL_SIZE;
+
+				if (Map::GetCellSafe(cellX, cellY) == CellType::CanopicJar)
+				{
+					Map::SetCell(cellX, cellY, CellType::Empty);
+					ParticleSystemManager::CreateExplosion(cellX * CELL_SIZE + CELL_SIZE / 2, cellY * CELL_SIZE + CELL_SIZE / 2, true);
+
+					switch ((Random() % 5))
+					{
+					case 0:
+						EnemyManager::Spawn(EnemyType::Spider, cellX * CELL_SIZE + CELL_SIZE / 2, cellY * CELL_SIZE + CELL_SIZE / 2);
+						break;
+					case 1:
+						Map::SetCell(cellX, cellY, CellType::LifeEssence);
+						break;
+					case 2:
+						Map::SetCell(cellX, cellY, CellType::RelicShard);
+						break;
+					}
+					Platform::PlaySound(Sounds::Kill);
+				}
+				else
+				{
+					Platform::PlaySound(Sounds::Hit);
+				}
+
+				hitAnything = true;
+			}
+			else
+			{
+				if (owner == &TombGame::player)
+				{
+					Enemy* overlappingEnemy = EnemyManager::GetOverlappingEnemy(p.x, p.y);
+					if (overlappingEnemy)
+					{
+						overlappingEnemy->Damage(Player::attackStrength);
+
+						hitAnything = true;
+					}
+				}
+				else if(TombGame::player.IsOverlappingPoint(p.x, p.y))
+				{
+					const EnemyArchetype* enemyArchetype = ((Enemy*)owner)->GetArchetype();
+					if (enemyArchetype)
+					{
+						TombGame::player.Damage(enemyArchetype->GetAttackStrength());
+						if (TombGame::player.hp == 0)
+						{
+							TombGame::stats.killedBy = ((Enemy*)owner)->GetType();
+						}
+					}
+					hitAnything = true;
+				}
+			}
+
+			if (hitAnything)
+			{
+				ParticleSystemManager::CreateExplosion(p.x - deltaX, p.y - deltaY);
+				p.life = 0;
+			}
+		}
+	}	
+}
+
+void ProjectileManager::Init()
+{
+	for (Projectile& p : projectiles)
+	{
+		p.life = 0;
+	}
+}
+
+void ProjectileManager::Draw()
+{
+	for(Projectile& p : projectiles)
+	{
+		if (p.life > 0)
+		{
+			const bool isPlayerProjectile = p.ownerId == Projectile::playerOwnerId;
+			const uint8_t pulse = (p.life & 0x08) ? 4 : 0;
+			const uint8_t outerScale = (uint8_t)(40 + pulse);
+			const uint8_t innerScale = (uint8_t)(28 + pulse / 2);
+			const uint16_t* spriteData = isPlayerProjectile ? projectileSpriteData : enemyProjectileSpriteData;
+
+			/* Draw a larger tinted glow first so projectiles stay readable over bright walls. */
+			Platform::SetDrawTint(isPlayerProjectile ? 4 : 10);
+			SceneRenderer::DrawObject(spriteData, p.x, p.y, outerScale, AnchorType::Center);
+
+			Platform::SetDrawTint(isPlayerProjectile ? 2 : 3);
+			SceneRenderer::DrawObject(spriteData, p.x, p.y, innerScale, AnchorType::Center);
+			Platform::SetDrawTint(0);
+		}
+	}
+}
+
+

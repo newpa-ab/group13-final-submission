@@ -1,0 +1,17 @@
+build/
+build-local/
+build-local2/
+build-local3/
+build-local4/
+release/
+Debug/
+Release/
+mx.scratch
+.settings/
+.vscode/
+.clangd
+.metadata/
+*.map
+*.bin
+*.elf
+compile_commands.json
