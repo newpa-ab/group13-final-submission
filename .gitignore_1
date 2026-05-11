@@ -1,9 +1,0 @@
-build/
-release/
-Debug/
-Release/
-mx.scratch
-.settings/
-.vscode/
-.clangd
-.metadata/
